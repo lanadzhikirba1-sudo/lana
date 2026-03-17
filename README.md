@@ -154,6 +154,20 @@ docs/automation.md
 
 ---
 
+# Проверка схемы Supabase
+
+Для сверки фактической схемы БД с `docs/data_model.md` используйте скрипт:
+
+1. скопировать `.env.example` в `.env`
+2. заполнить `DATABASE_URL` (рекомендуется read-only пользователь)
+3. при необходимости указать `DB_SCHEMA` (по умолчанию `public`)
+4. установить зависимость: `python3 -m pip install psycopg[binary]`
+5. запустить проверку: `python3 scripts/check_schema.py`
+
+Скрипт сравнивает таблицы/поля/типы и показывает расхождения (missing/extra/type mismatch).
+
+---
+
 # Правила для Cursor-агента
 
 При работе с проектом необходимо:
