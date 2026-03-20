@@ -140,6 +140,12 @@ docs/automation.md
 
 Описание фоновых процессов и автоматизаций.
 
+Вспомогательный SQL для ручного теста (очередь напоминаний):
+
+docs/sql/notification_jobs_v1.sql
+
+docs/sql/payment_reminder_jobs_trigger_v1.sql
+
 ---
 
 # Технологии проекта

@@ -25,12 +25,24 @@
 
 Принцип:
 - Google Calendar является источником истины для расписания.
-- Система не создает и не изменяет события календаря.
+- Система не создает и не изменяет события в Google Calendar.
+
+### Доступ к календарю терапевта (OAuth)
+
+1. Терапевт в Telegram-боте инициирует действие **«Подключить Google Calendar»** (стартовая настройка или настройки).
+2. Бот (через Make) выдаёт терапевту **ссылку на OAuth 2.0 Google** (запрос доступа к Calendar API для приложения проекта).
+3. Терапевт в браузере входит в Google и подтверждает доступ.
+4. После успешной авторизации **Make** (callback redirect) получает код обмена, обменивает его на **refresh/access token**, определяет **calendar_id** (основной или выбранный календарь) и записывает в Supabase строку в `calendar_connections` для этого терапевта.
+5. Все последующие запросы к Google Calendar API выполняются **оркестратором Make** от имени терапевта, используя сохранённые учётные данные; ответы API обновляют `calendar_events`, `calendar_event_instances` и поле `sync_token` (incremental sync).
+
+Важно:
+- пользовательский переход на авторизацию — **из браузера по ссылке**, которую выдаёт бот; сам Telegram OAuth не выполняет.
 
 Основные данные:
 - `google_event_id` в `calendar_events`
 - `google_instance_event_id` в `calendar_event_instances`
 - `sync_token` в `calendar_connections` для incremental sync
+- `last_full_sync_at` — отметка полного sync при сбросе incremental
 
 ---
 
@@ -40,6 +52,7 @@
 - отправка reminder-уведомлений клиентам
 - подтверждение оплаты через кнопку
 - отправка daily digest терапевту
+- меню настроек (digest, payment reminder, список клиентов и флаги напоминаний)
 
 Принцип:
 - Telegram является основным интерфейсом взаимодействия пользователей с системой.
@@ -58,6 +71,7 @@
 Назначение:
 - основная база данных (PostgreSQL)
 - хранение состояния системы
+- обработка `notification_jobs` для отправки payment-reminder уведомлений по расписанию
 
 Хранит:
 - терапевтов и клиентов
@@ -80,10 +94,9 @@
 Отвечает за:
 - прием webhook от Telegram
 - обработку команд и нажатий кнопок бота
+- выдачу ссылки OAuth Google и запись `calendar_connections`
 - синхронизацию Google Calendar с Supabase
-- создание `notification_jobs`
-- отправку Telegram-сообщений
-- формирование daily digest
+- формирование и отправку daily digest терапевту
 - обновление статуса оплаты после действия клиента
 
 Принцип:
@@ -101,9 +114,8 @@
 
 ## Reminder поток (Supabase -> Telegram)
 
-1. Make создает `notification_jobs` для нужных встреч.
-2. В момент `scheduled_for` отправляет сообщение в Telegram.
-3. Обновляет статус задачи (`sent`/`failed`).
+1. Supabase-триггер при INSERT/UPDATE `calendar_event_instances` создаёт/обновляет `notification_jobs` для нужных встреч.
+2. В момент `scheduled_for` сообщение отправляет Supabase-воркер/Edge Function, после чего обновляется статус задачи (`sent`/`failed`).
 
 ## Payment confirmation поток (Telegram -> Supabase)
 
