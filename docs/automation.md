@@ -7,6 +7,7 @@
 - доменные сценарии: `docs/business_logic.md`
 - таблицы PostgreSQL: `docs/data_model.md`
 - обзор интеграций: `docs/integrations.md`
+- матрица сценариев BotHelp → API (для конструктора): `docs/constructor_scenarios_api.md`
 - SQL-референс очереди (опционально для v1): `docs/sql/notification_jobs_v1.sql`, `docs/sql/payment_reminder_jobs_trigger_v1.sql`
 
 ---
