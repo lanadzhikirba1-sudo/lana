@@ -158,7 +158,7 @@
 
 ## 7. notification_jobs
 
-Очередь исходящих уведомлений. При изменениях встреч backend и/или PostgreSQL-триггеры создают или обновляют `pending` задачи. **Текст** payment reminder и вызов Telegram для отправки формирует **конструктор ботов**; backend хранит каноническое состояние задачи (`pending` / `sent` / `failed` / `cancelled`) и срок `scheduled_for` (см. `docs/automation.md`, разделы 7 и 9.12–9.13).
+Очередь исходящих уведомлений. При изменениях встреч backend и/или PostgreSQL-триггеры создают или обновляют `pending` задачи. **Текст** payment reminder и вызов Telegram для отправки формирует **конструктор ботов**; backend хранит каноническое состояние задачи (`pending` / `sent` / `failed` / `cancelled`) и срок `scheduled_for` (см. `docs/automation.md`, разделы 7 и §9.10–9.12).
 
 
 | Поле                       | Тип данных  | Назначение                                                                         |

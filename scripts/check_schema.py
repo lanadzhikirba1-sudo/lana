@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Проверка соответствия docs/data_model.md и схемы Postgres (Supabase).
+Проверка соответствия docs/data_model.md и схемы PostgreSQL.
 
 Запуск:
   python3 scripts/check_schema.py
@@ -170,7 +170,7 @@ def compare_schema(
                     f"{table}.{c}: тип не совпадает (docs={exp_t}, db={act_t})"
                 )
 
-    print("=== Проверка схемы Supabase vs docs/data_model.md ===")
+    print("=== Проверка схемы PostgreSQL vs docs/data_model.md ===")
     if warnings:
         print("\nПредупреждения:")
         for w in warnings:
