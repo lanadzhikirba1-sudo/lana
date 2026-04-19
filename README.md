@@ -180,15 +180,34 @@ docs/reference/bothelp_help_mirror.md
 
 ---
 
+# Переменные окружения
+
+Шаблон без секретов: **`.env.example`**. Рабочий файл **`.env`** создаётся локально и **не коммитится** (см. `.gitignore`).
+
+| Переменная | Назначение |
+|------------|------------|
+| `DATABASE_URL` | Подключение к PostgreSQL (скрипт `check_schema.py`, будущий backend) |
+| `DB_SCHEMA` | Схема БД, по умолчанию `public` |
+| `BOT_CONSTRUCTOR_SECRET` | Секрет для запросов BotHelp → `/api/v1/bot/*` (`Authorization` или `X-Bot-Api-Token`) |
+| `INTERNAL_API_SECRET` | Отдельный секрет для `/api/v1/internal/*` (cron, sync) |
+| `APP_PUBLIC_BASE_URL` | Публичный `https://…` backend (без завершающего `/`) |
+| `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` | OAuth-клиент в [Google Cloud Console](https://console.cloud.google.com/) → APIs & Services → Credentials |
+| `GOOGLE_OAUTH_REDIRECT_URI` | Полный URL callback; должен совпадать с **Authorized redirect URI** в консоли Google (обычно `{APP_PUBLIC_BASE_URL}/api/v1/google/oauth/callback`) |
+| `OAUTH_CREDENTIALS_ENCRYPTION_KEY` | Ключ приложения для шифрования `google_oauth_credentials_encrypted` в БД (формат задаётся реализацией backend) |
+| `GOOGLE_GEOCODING_API_KEY` | Опционально, если город терапевта резолвится через Google Geocoding (см. `docs/automation.md` §8.3) |
+
+Контракты HTTP и заголовки: `docs/automation.md` §3.2.
+
+---
+
 # Проверка схемы PostgreSQL
 
 Для сверки фактической схемы БД с `docs/data_model.md` используйте скрипт:
 
-1. скопировать `.env.example` в `.env`
-2. заполнить `DATABASE_URL` (рекомендуется read-only пользователь)
-3. при необходимости указать `DB_SCHEMA` (по умолчанию `public`)
-4. установить зависимость: `python3 -m pip install psycopg[binary]`
-5. запустить проверку: `python3 scripts/check_schema.py`
+1. скопировать `.env.example` в `.env` и заполнить переменные (для скрипта достаточно `DATABASE_URL`; остальное — для будущего backend)
+2. при необходимости указать `DB_SCHEMA` (по умолчанию `public`)
+3. установить зависимость: `python3 -m pip install psycopg[binary]`
+4. запустить проверку: `python3 scripts/check_schema.py`
 
 Скрипт сравнивает таблицы/поля/типы и показывает расхождения (missing/extra/type mismatch).
 
