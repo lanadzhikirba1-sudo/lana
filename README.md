@@ -211,6 +211,22 @@ docs/reference/bothelp_help_mirror.md
 
 Скрипт сравнивает таблицы/поля/типы и показывает расхождения (missing/extra/type mismatch).
 
+### Первичные миграции PostgreSQL (Neon и др.)
+
+После создания пустой БД или при расхождении с `docs/data_model.md`:
+
+1. Заполнить `.env` (`DATABASE_URL`).
+2. Активировать окружение с `psycopg` (например `.venv` из корня: `python3 -m venv .venv && . .venv/bin/activate && pip install 'psycopg[binary]'`).
+3. Выполнить:
+
+```bash
+set -a && . ./.env && set +a
+. .venv/bin/activate
+python3 scripts/apply_schema_migrations.py
+```
+
+Скрипт применяет подряд `docs/sql/schema_migrations_v1.sql` и `docs/sql/payment_reminder_jobs_trigger_v1.sql`. Затем снова запустите `python3 scripts/check_schema.py`.
+
 ---
 
 # Файлы, которые нельзя коммитить

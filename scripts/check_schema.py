@@ -35,9 +35,11 @@ def normalize_type(type_name: str) -> str:
         "bigint": "bigint",
         "int": "integer",
         "integer": "integer",
+        "smallint": "smallint",
         "uuid": "uuid",
         "text": "text",
         "boolean": "boolean",
+        "bytea": "bytea",
         "timestamptz": "timestamp with time zone",
         "timestamp with time zone": "timestamp with time zone",
         "time": "time without time zone",
@@ -57,6 +59,7 @@ def parse_data_model_markdown(path: str) -> Dict[str, Dict[str, ColumnSpec]]:
     result: Dict[str, Dict[str, ColumnSpec]] = {}
     current_table: str | None = None
     in_table = False
+    seen_header_separator = False
 
     for line in lines:
         header_match = table_header_re.match(line.strip())
@@ -64,16 +67,21 @@ def parse_data_model_markdown(path: str) -> Dict[str, Dict[str, ColumnSpec]]:
             current_table = header_match.group(1)
             result[current_table] = {}
             in_table = False
+            seen_header_separator = False
             continue
 
         if current_table is None:
             continue
 
         stripped = line.strip()
-        if stripped.startswith("| Поле | Тип данных |"):
+        # Таблицы в docs/data_model.md: три колонки — «Поле | Тип данных | Назначение»
+        if re.match(r"^\|\s*Поле\s*\|", stripped) and "Тип данных" in stripped:
             in_table = True
+            seen_header_separator = False
             continue
-        if in_table and stripped.startswith("|---|---|---|"):
+        if in_table and not seen_header_separator:
+            if stripped.startswith("|") and "---" in stripped:
+                seen_header_separator = True
             continue
         if in_table and stripped.startswith("|"):
             match = row_re.match(stripped)
@@ -81,6 +89,8 @@ def parse_data_model_markdown(path: str) -> Dict[str, Dict[str, ColumnSpec]]:
                 continue
             col_name = match.group(1).strip()
             col_type = match.group(2).strip()
+            if col_name.lower() == "поле" and col_type.lower().startswith("тип"):
+                continue
             if col_name and col_type:
                 result[current_table][col_name] = ColumnSpec(
                     name=col_name,
