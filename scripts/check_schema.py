@@ -16,7 +16,10 @@ import os
 import re
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Dict, List
+
+from repo_dotenv import merge_repo_dotenv
 
 
 DOC_PATH = "docs/data_model.md"
@@ -198,6 +201,9 @@ def compare_schema(
 
 
 def main() -> int:
+    root = Path(__file__).resolve().parent.parent
+    merge_repo_dotenv(root)
+
     database_url = os.getenv("DATABASE_URL")
     schema_name = os.getenv("DB_SCHEMA", "public")
 

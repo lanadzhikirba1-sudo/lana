@@ -220,12 +220,13 @@ docs/reference/bothelp_help_mirror.md
 3. Выполнить:
 
 ```bash
-set -a && . ./.env && set +a
 . .venv/bin/activate
 python3 scripts/apply_schema_migrations.py
 ```
 
-Скрипт применяет подряд `docs/sql/schema_migrations_v1.sql` и `docs/sql/payment_reminder_jobs_trigger_v1.sql`. Затем снова запустите `python3 scripts/check_schema.py`.
+Скрипты `apply_schema_migrations.py` и `check_schema.py` при наличии файла `.env` в корне репозитория подставляют из него переменные в окружение (не нужен `source .env` в zsh при URL с `&`; значения из `.env` перекрывают одноимённые переменные shell, чтобы не подключиться к устаревшей базе).
+
+Порядок SQL: `docs/sql/schema_initial_v1.sql` (базовые таблицы на пустой БД), затем `docs/sql/schema_migrations_v1.sql`, затем `docs/sql/payment_reminder_jobs_trigger_v1.sql`. После применения снова запустите `python3 scripts/check_schema.py`.
 
 ---
 
