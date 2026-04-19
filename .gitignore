@@ -1,11 +1,8 @@
 .env
-
-# Supabase Postgres direct connection string (read-only user recommended)
-DATABASE_URL=postgresql://postgres:4vuSf4Hu3o3zRGNL@db.abyqrmbfvcmzfgnbaqvh.supabase.co:5432/postgres
-
-# Optional schema name (default: public)
-DB_SCHEMA=public
-
 .env.local
+
 __pycache__/
 *.pyc
+
+.DS_Store
+.venv/
