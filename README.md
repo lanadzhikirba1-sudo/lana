@@ -180,6 +180,29 @@ docs/reference/bothelp_help_mirror.md
 
 ---
 
+# Минимальный HTTP-сервис (Render и локально)
+
+В корне репозитория — заглушка **`server.py`** (FastAPI): `GET /health`, корень и маршрут callback OAuth (пока **501**, чтобы URL был валидным для регистрации в Google). Это даёт рабочий **Start Command** на Render и публичный `https://…` для `APP_PUBLIC_BASE_URL`. Полный API описан в `docs/automation.md`.
+
+Локально:
+
+```bash
+python3 -m venv .venv && . .venv/bin/activate
+pip install -r requirements.txt
+uvicorn server:app --host 0.0.0.0 --port 8000
+```
+
+**Render (Web Service, Python):**
+
+| Поле | Значение |
+|------|----------|
+| **Build Command** | `pip install -r requirements.txt` |
+| **Start Command** | `uvicorn server:app --host 0.0.0.0 --port $PORT` |
+
+После деплоя подставьте выданный URL (без завершающего `/`) в `APP_PUBLIC_BASE_URL` и в **Authorized redirect URI** в Google (`…/api/v1/google/oauth/callback`).
+
+---
+
 # Переменные окружения
 
 Шаблон без секретов: **`.env.example`**. Рабочий файл **`.env`** создаётся локально и **не коммитится** (см. `.gitignore`).
@@ -206,7 +229,7 @@ docs/reference/bothelp_help_mirror.md
 
 1. скопировать `.env.example` в `.env` и заполнить переменные (для скрипта достаточно `DATABASE_URL`; остальное — для будущего backend)
 2. при необходимости указать `DB_SCHEMA` (по умолчанию `public`)
-3. установить зависимость: `python3 -m pip install psycopg[binary]`
+3. установить зависимости: `python3 -m pip install -r requirements.txt` (включает `psycopg` для скриптов)
 4. запустить проверку: `python3 scripts/check_schema.py`
 
 Скрипт сравнивает таблицы/поля/типы и показывает расхождения (missing/extra/type mismatch).
