@@ -231,7 +231,7 @@ uvicorn server:app --host 0.0.0.0 --port 8000
 | `APP_PUBLIC_BASE_URL` | Публичный `https://…` backend (без завершающего `/`) |
 | `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` | OAuth-клиент в [Google Cloud Console](https://console.cloud.google.com/) → APIs & Services → Credentials |
 | `GOOGLE_OAUTH_REDIRECT_URI` | Полный URL callback; должен совпадать с **Authorized redirect URI** в консоли Google (обычно `{APP_PUBLIC_BASE_URL}/api/v1/google/oauth/callback`) |
-| `OAUTH_CREDENTIALS_ENCRYPTION_KEY` | Ключ приложения для шифрования `google_oauth_credentials_encrypted` в БД (формат задаётся реализацией backend) |
+| `OAUTH_CREDENTIALS_ENCRYPTION_KEY` | Ключ приложения для шифрования `google_oauth_credentials_encrypted` в БД; в текущей реализации — Fernet key (urlsafe-base64, 32 bytes) |
 | `GOOGLE_GEOCODING_API_KEY` | Опционально, если город терапевта резолвится через Google Geocoding (см. `docs/automation.md` §8.3) |
 
 Контракты HTTP и заголовки: `docs/automation.md` §3.2.
