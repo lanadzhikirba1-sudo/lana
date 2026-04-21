@@ -212,7 +212,7 @@ uvicorn server:app --host 0.0.0.0 --port 8000
 | Поле | Значение |
 |------|----------|
 | **Build Command** | `pip install -r requirements.txt` |
-| **Start Command** | `uvicorn server:app --host 0.0.0.0 --port $PORT` |
+| **Start Command** | `python -m uvicorn server:app --host 0.0.0.0 --port $PORT` |
 
 После деплоя подставьте выданный URL (без завершающего `/`) в `APP_PUBLIC_BASE_URL` и в **Authorized redirect URI** в Google (`…/api/v1/google/oauth/callback`).
 
