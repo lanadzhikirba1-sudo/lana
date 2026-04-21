@@ -197,7 +197,7 @@ docs/reference/bothelp_help_mirror.md
 
 # Минимальный HTTP-сервис (Render и локально)
 
-В корне репозитория — минимальный **`server.py`** (FastAPI): `GET /health`, корень и маршрут callback OAuth с обменом `code -> token` в Google. В текущей версии callback не сохраняет токены в БД (только подтверждает успешный обмен), этого достаточно для первичной проверки URL/клиента и настройки `APP_PUBLIC_BASE_URL`. Полный API описан в `docs/automation.md`.
+В корне репозитория — минимальный **`server.py`** (FastAPI): `GET /health`, корень, `POST /api/v1/bot/therapists/{therapist_id}/google/oauth-url` и callback `GET /api/v1/google/oauth/callback`. Callback обменивает `code -> token` у Google, шифрует blob и пишет в `calendar_connections.google_oauth_credentials_encrypted` (version=1). Полный API описан в `docs/automation.md`.
 
 Локально:
 

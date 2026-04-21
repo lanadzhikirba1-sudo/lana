@@ -8,19 +8,44 @@ from __future__ import annotations
 import base64
 import json
 import os
+from datetime import UTC, datetime
+from pathlib import Path
 from uuid import UUID
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import JSONResponse
 from cryptography.fernet import Fernet
 
+
+def _merge_repo_dotenv() -> None:
+    """
+    Загружает переменные из .env рядом с server.py в os.environ.
+    Нужен для локального запуска без `source .env`.
+    """
+    dot = Path(__file__).resolve().parent / ".env"
+    if not dot.is_file():
+        return
+    for raw in dot.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, _, rest = line.partition("=")
+        k = k.strip()
+        v = rest.strip()
+        if len(v) >= 2 and v[0] == v[-1] and v[0] in ('"', "'"):
+            v = v[1:-1]
+        os.environ[k] = v
+
+
+_merge_repo_dotenv()
+
 app = FastAPI(
     title="lana-backend",
-    version="0.0.3",
-    description="Минимальный backend: health/root и Google OAuth callback с записью в БД.",
+    version="0.0.4",
+    description="Минимальный backend: health/root + Google OAuth URL/callback с записью в БД.",
 )
 
 
@@ -140,6 +165,122 @@ def _save_oauth_blob(calendar_connection_id: UUID, encrypted_blob: bytes) -> boo
             )
             row = cur.fetchone()
     return row is not None
+
+
+def _build_state(calendar_connection_id: UUID, therapist_id: UUID) -> str:
+    payload = {
+        "calendar_connection_id": str(calendar_connection_id),
+        "therapist_id": str(therapist_id),
+        "ts": datetime.now(UTC).isoformat(),
+    }
+    raw = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    # base64url без "=" в конце (нормальный формат для state)
+    return base64.urlsafe_b64encode(raw).decode("utf-8").rstrip("=")
+
+
+def _extract_bearer_token(authorization: str | None) -> str | None:
+    if not authorization:
+        return None
+    parts = authorization.strip().split(" ", 1)
+    if len(parts) == 2 and parts[0].lower() == "bearer":
+        return parts[1].strip()
+    return None
+
+
+def _assert_bot_auth(authorization: str | None, x_bot_api_token: str | None) -> None:
+    expected = _required_env("BOT_CONSTRUCTOR_SECRET")
+    got = _extract_bearer_token(authorization) or (x_bot_api_token or "").strip()
+    if not got or got != expected:
+        raise HTTPException(status_code=401, detail="Unauthorized bot token")
+
+
+def _get_or_create_calendar_connection(therapist_id: UUID, calendar_id: str) -> UUID | None:
+    dsn = _required_env("DATABASE_URL")
+    try:
+        import psycopg
+    except ImportError as exc:  # pragma: no cover
+        raise HTTPException(status_code=500, detail="Missing dependency: psycopg") from exc
+
+    with psycopg.connect(dsn) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select id
+                from public.calendar_connections
+                where therapist_id = %s
+                  and calendar_id = %s
+                limit 1
+                """,
+                (str(therapist_id), calendar_id),
+            )
+            row = cur.fetchone()
+            if row:
+                return UUID(str(row[0]))
+
+            # Проверяем, что терапевт существует
+            cur.execute("select id from public.therapists where id = %s limit 1", (str(therapist_id),))
+            therapist = cur.fetchone()
+            if not therapist:
+                return None
+
+            cur.execute(
+                """
+                insert into public.calendar_connections (therapist_id, calendar_id)
+                values (%s, %s)
+                returning id
+                """,
+                (str(therapist_id), calendar_id),
+            )
+            created = cur.fetchone()
+            if not created:
+                return None
+            return UUID(str(created[0]))
+
+
+@app.post("/api/v1/bot/therapists/{therapist_id}/google/oauth-url")
+def create_google_oauth_url(
+    therapist_id: UUID,
+    authorization: str | None = Header(default=None),
+    x_bot_api_token: str | None = Header(default=None),
+) -> JSONResponse:
+    """
+    Выдаёт Google OAuth URL и state (формат из docs/automation.md §9.2).
+    """
+    _assert_bot_auth(authorization, x_bot_api_token)
+
+    calendar_id = "primary"
+    calendar_connection_id = _get_or_create_calendar_connection(therapist_id, calendar_id)
+    if not calendar_connection_id:
+        return JSONResponse(
+            status_code=404,
+            content={"detail": "Therapist not found", "therapist_id": str(therapist_id)},
+        )
+
+    state = _build_state(calendar_connection_id, therapist_id)
+    auth_url = (
+        "https://accounts.google.com/o/oauth2/v2/auth?"
+        + urlencode(
+            {
+                "client_id": _required_env("GOOGLE_OAUTH_CLIENT_ID"),
+                "redirect_uri": _required_env("GOOGLE_OAUTH_REDIRECT_URI"),
+                "response_type": "code",
+                "scope": "https://www.googleapis.com/auth/calendar",
+                "access_type": "offline",
+                "prompt": "consent",
+                "include_granted_scopes": "true",
+                "state": state,
+            }
+        )
+    )
+    return JSONResponse(
+        status_code=200,
+        content={
+            "auth_url": auth_url,
+            "state": state,
+            "calendar_connection_id": str(calendar_connection_id),
+            "calendar_id": calendar_id,
+        },
+    )
 
 
 @app.get("/api/v1/google/oauth/callback")
