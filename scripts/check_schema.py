@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Проверка соответствия docs/data_model.md и схемы Postgres (Supabase).
+Проверка соответствия docs/data_model.md и схемы PostgreSQL.
 
 Запуск:
   python3 scripts/check_schema.py
@@ -16,7 +16,10 @@ import os
 import re
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Dict, List
+
+from repo_dotenv import merge_repo_dotenv
 
 
 DOC_PATH = "docs/data_model.md"
@@ -35,9 +38,11 @@ def normalize_type(type_name: str) -> str:
         "bigint": "bigint",
         "int": "integer",
         "integer": "integer",
+        "smallint": "smallint",
         "uuid": "uuid",
         "text": "text",
         "boolean": "boolean",
+        "bytea": "bytea",
         "timestamptz": "timestamp with time zone",
         "timestamp with time zone": "timestamp with time zone",
         "time": "time without time zone",
@@ -57,6 +62,7 @@ def parse_data_model_markdown(path: str) -> Dict[str, Dict[str, ColumnSpec]]:
     result: Dict[str, Dict[str, ColumnSpec]] = {}
     current_table: str | None = None
     in_table = False
+    seen_header_separator = False
 
     for line in lines:
         header_match = table_header_re.match(line.strip())
@@ -64,16 +70,21 @@ def parse_data_model_markdown(path: str) -> Dict[str, Dict[str, ColumnSpec]]:
             current_table = header_match.group(1)
             result[current_table] = {}
             in_table = False
+            seen_header_separator = False
             continue
 
         if current_table is None:
             continue
 
         stripped = line.strip()
-        if stripped.startswith("| Поле | Тип данных |"):
+        # Таблицы в docs/data_model.md: три колонки — «Поле | Тип данных | Назначение»
+        if re.match(r"^\|\s*Поле\s*\|", stripped) and "Тип данных" in stripped:
             in_table = True
+            seen_header_separator = False
             continue
-        if in_table and stripped.startswith("|---|---|---|"):
+        if in_table and not seen_header_separator:
+            if stripped.startswith("|") and "---" in stripped:
+                seen_header_separator = True
             continue
         if in_table and stripped.startswith("|"):
             match = row_re.match(stripped)
@@ -81,6 +92,8 @@ def parse_data_model_markdown(path: str) -> Dict[str, Dict[str, ColumnSpec]]:
                 continue
             col_name = match.group(1).strip()
             col_type = match.group(2).strip()
+            if col_name.lower() == "поле" and col_type.lower().startswith("тип"):
+                continue
             if col_name and col_type:
                 result[current_table][col_name] = ColumnSpec(
                     name=col_name,
@@ -170,7 +183,7 @@ def compare_schema(
                     f"{table}.{c}: тип не совпадает (docs={exp_t}, db={act_t})"
                 )
 
-    print("=== Проверка схемы Supabase vs docs/data_model.md ===")
+    print("=== Проверка схемы PostgreSQL vs docs/data_model.md ===")
     if warnings:
         print("\nПредупреждения:")
         for w in warnings:
@@ -188,6 +201,9 @@ def compare_schema(
 
 
 def main() -> int:
+    root = Path(__file__).resolve().parent.parent
+    merge_repo_dotenv(root)
+
     database_url = os.getenv("DATABASE_URL")
     schema_name = os.getenv("DB_SCHEMA", "public")
 

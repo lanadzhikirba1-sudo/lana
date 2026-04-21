@@ -10,6 +10,7 @@ README содержит:
 - правила работы с репозиторием
 - правила работы с Git
 - структуру проектной документации
+- зеркало документации BotHelp и порядок поиска ответов
 
 Подробная архитектура, бизнес-логика и модель данных описаны в документах в папке **docs**.
 
@@ -27,6 +28,21 @@ README содержит:
 - commit-сообщения → допустимы на английском или русском
 
 Технические термины (API, event, instance, webhook и т.п.) могут использоваться на английском.
+
+---
+
+# Роли в проекте
+
+- **Агент (Codex)** — системный архитектор и главный разработчик: проектирует и вносит изменения в код/инфраструктуру/документацию, проверяет целостность решений и сопровождает релизы.
+- **Пользователь** — бизнес-аналитик и продакт: определяет цели, приоритеты, бизнес-правила, сценарии и критерии готовности.
+
+---
+
+# Правило взаимодействия с агентом
+
+- Агент должен выполнять технические действия самостоятельно (правки, проверки, коммиты, push, деплой-шаги в рамках доступов), а не перекладывать рутинные шаги на пользователя.
+- Если действие потенциально рискованное, необратимое или требует внешней авторизации/секрета, агент сначала запрашивает разрешение или короткое подтверждение.
+- Если действие невозможно выполнить из среды агента (например, нужен интерактивный ввод/токен/доступ в сторонний интерфейс), агент обязан дать точную пошаговую инструкцию и продолжить работу сразу после результата пользователя.
 
 ---
 
@@ -138,7 +154,13 @@ docs/integrations.md
 
 docs/automation.md
 
-Описание фоновых процессов и автоматизаций.
+Описание фоновых процессов, backend-логики и API между конструктором ботов и backend.
+
+### Constructor scenarios and API
+
+docs/constructor_scenarios_api.md
+
+Матрица: сценарии BotHelp → HTTP endpoint → переменные конструктора; цикл due/mark; что не вызывается из сценариев; черновик бэклога после v1.
 
 Вспомогательный SQL для ручного теста (очередь напоминаний):
 
@@ -148,29 +170,103 @@ docs/sql/payment_reminder_jobs_trigger_v1.sql
 
 ---
 
+### BotHelp (зеркало базы знаний)
+
+Файл со снимком публичной документации BotHelp (help.bothelp.io):
+
+docs/reference/bothelp_help_mirror.md
+
+Обновить снимок локально: `scripts/mirror_bothelp_help.py` (зависимости и запуск — в комментарии в начале скрипта).
+
+**Порядок при вопросах про BotHelp:** сначала искать ответ в `docs/reference/bothelp_help_mirror.md`; если нужного нет — смотреть официальную базу и искать в интернете.
+
+---
+
 # Технологии проекта
 
 Основные технологии системы:
 
 - Telegram Bot
 - Google Calendar API
-- Supabase (PostgreSQL)
+- Backend API
+- PostgreSQL
 
 Описание их использования находится в документации проекта.
 
 ---
 
-# Проверка схемы Supabase
+# Минимальный HTTP-сервис (Render и локально)
+
+В корне репозитория — минимальный **`server.py`** (FastAPI): `GET /health`, корень, `POST /api/v1/bot/therapists/{therapist_id}/google/oauth-url` и callback `GET /api/v1/google/oauth/callback`. Callback обменивает `code -> token` у Google, шифрует blob и пишет в `calendar_connections.google_oauth_credentials_encrypted` (version=1), затем **редиректит пользователя** на страницу `GET /oauth/google/success` (или на URL из `GOOGLE_OAUTH_SUCCESS_REDIRECT_URL`), чтобы в браузере не оставался сырой JSON. Полный API описан в `docs/automation.md`.
+
+Локально:
+
+```bash
+python3 -m venv .venv && . .venv/bin/activate
+pip install -r requirements.txt
+uvicorn server:app --host 0.0.0.0 --port 8000
+```
+
+**Render (Web Service, Python):**
+
+| Поле | Значение |
+|------|----------|
+| **Build Command** | `pip install -r requirements.txt` |
+| **Start Command** | `uvicorn server:app --host 0.0.0.0 --port $PORT` |
+
+После деплоя подставьте выданный URL (без завершающего `/`) в `APP_PUBLIC_BASE_URL` и в **Authorized redirect URI** в Google (`…/api/v1/google/oauth/callback`).
+
+---
+
+# Переменные окружения
+
+Шаблон без секретов: **`.env.example`**. Рабочий файл **`.env`** создаётся локально и **не коммитится** (см. `.gitignore`).
+
+| Переменная | Назначение |
+|------------|------------|
+| `DATABASE_URL` | Подключение к PostgreSQL (скрипт `check_schema.py`, будущий backend) |
+| `DB_SCHEMA` | Схема БД, по умолчанию `public` |
+| `BOT_CONSTRUCTOR_SECRET` | Секрет для запросов BotHelp → `/api/v1/bot/*` (`Authorization` или `X-Bot-Api-Token`) |
+| `INTERNAL_API_SECRET` | Отдельный секрет для `/api/v1/internal/*` (cron, sync) |
+| `APP_PUBLIC_BASE_URL` | Публичный `https://…` backend (без завершающего `/`) |
+| `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` | OAuth-клиент в [Google Cloud Console](https://console.cloud.google.com/) → APIs & Services → Credentials |
+| `GOOGLE_OAUTH_REDIRECT_URI` | Полный URL callback; должен совпадать с **Authorized redirect URI** в консоли Google (обычно `{APP_PUBLIC_BASE_URL}/api/v1/google/oauth/callback`) |
+| `GOOGLE_OAUTH_SUCCESS_REDIRECT_URL` | Опционально: полный URL, куда редиректить после успешного OAuth (добавится `calendar_connection_id` в query). Если пусто — редирект на `{APP_PUBLIC_BASE_URL}/oauth/google/success` |
+| `GOOGLE_OAUTH_ERROR_REDIRECT_URL` | Опционально: полный URL для редиректа при ошибке OAuth. Если пусто — `{APP_PUBLIC_BASE_URL}/oauth/google/error` |
+| `OAUTH_CREDENTIALS_ENCRYPTION_KEY` | Ключ приложения для шифрования `google_oauth_credentials_encrypted` в БД; в текущей реализации — Fernet key (urlsafe-base64, 32 bytes) |
+| `GOOGLE_GEOCODING_API_KEY` | Опционально, если город терапевта резолвится через Google Geocoding (см. `docs/automation.md` §8.3) |
+
+Контракты HTTP и заголовки: `docs/automation.md` §3.2.
+
+---
+
+# Проверка схемы PostgreSQL
 
 Для сверки фактической схемы БД с `docs/data_model.md` используйте скрипт:
 
-1. скопировать `.env.example` в `.env`
-2. заполнить `DATABASE_URL` (рекомендуется read-only пользователь)
-3. при необходимости указать `DB_SCHEMA` (по умолчанию `public`)
-4. установить зависимость: `python3 -m pip install psycopg[binary]`
-5. запустить проверку: `python3 scripts/check_schema.py`
+1. скопировать `.env.example` в `.env` и заполнить переменные (для скрипта достаточно `DATABASE_URL`; остальное — для будущего backend)
+2. при необходимости указать `DB_SCHEMA` (по умолчанию `public`)
+3. установить зависимости: `python3 -m pip install -r requirements.txt` (включает `psycopg` для скриптов)
+4. запустить проверку: `python3 scripts/check_schema.py`
 
 Скрипт сравнивает таблицы/поля/типы и показывает расхождения (missing/extra/type mismatch).
+
+### Первичные миграции PostgreSQL (Neon и др.)
+
+После создания пустой БД или при расхождении с `docs/data_model.md`:
+
+1. Заполнить `.env` (`DATABASE_URL`).
+2. Активировать окружение с `psycopg` (например `.venv` из корня: `python3 -m venv .venv && . .venv/bin/activate && pip install 'psycopg[binary]'`).
+3. Выполнить:
+
+```bash
+. .venv/bin/activate
+python3 scripts/apply_schema_migrations.py
+```
+
+Скрипты `apply_schema_migrations.py` и `check_schema.py` при наличии файла `.env` в корне репозитория подставляют из него переменные в окружение (не нужен `source .env` в zsh при URL с `&`; значения из `.env` перекрывают одноимённые переменные shell, чтобы не подключиться к устаревшей базе).
+
+Порядок SQL: `docs/sql/schema_initial_v1.sql` (базовые таблицы на пустой БД), затем `docs/sql/schema_migrations_v1.sql`, затем `docs/sql/payment_reminder_jobs_trigger_v1.sql`. После применения снова запустите `python3 scripts/check_schema.py`.
 
 ---
 
@@ -198,13 +294,16 @@ docs/sql/payment_reminder_jobs_trigger_v1.sql
 5. вносить изменения **только через Pull Request**
 6. перед выполнением любой задачи по изменению логики системы обязательно ознакомиться с документацией в папке **docs**
 7. перед коммитом всегда проверять, не вызывают ли изменения конфликты в других частях логики и в других файлах
+8. при обсуждении документации в диалоге **не править файлы в `docs` сразу после каждого вопроса**: сначала в чате согласовать, **что именно** пишем (структура, формулировки, затрагиваемые файлы), и вносить изменения **после явного согласия** пользователя (например, «да, вноси» / утверждённый текст). Исключение — если пользователь **прямо** просит немедленно обновить конкретный файл или правка уже однозначно сформулирована как готовая инструкция
+9. по вопросам про **BotHelp** сначала опираться на зеркало `docs/reference/bothelp_help_mirror.md`; если ответа там нет — искать в интернете (в т.ч. официальная база: https://help.bothelp.io/)
 
 Перед коммитом необходимо проверять непротиворечивость и согласованность изменений по следующему чеклисту:
 
-- соответствие изменений документам в **docs** (business_logic, data_model, integrations, automation)
+- соответствие изменений документам в **docs** (business_logic, data_model, integrations, automation, constructor_scenarios_api)
 - согласованность бизнес-логики между измененными и связанными файлами (входные условия, переходы состояний, результаты)
 - согласованность структуры данных и контрактов (поля, типы, обязательность, форматы, идентификаторы)
 - совместимость интеграций и внешних API (названия параметров, статусы, обработка ошибок, лимиты)
+- раздельные секреты: конструктор ботов (`BOT_CONSTRUCTOR_SECRET`) и internal (`INTERNAL_API_SECRET`), если затронуты `docs/automation.md` / `docs/integrations.md`
 - отсутствие регрессий в связанных сценариях и процессах (создание, обновление, отмена, уведомления, фоновые задачи)
 - корректность обработки ошибок и пограничных случаев (пустые данные, дубликаты, некорректные значения, таймауты)
 - актуальность документации: если логика изменилась, соответствующие файлы в **docs** обновлены в том же изменении
