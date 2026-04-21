@@ -197,7 +197,7 @@ docs/reference/bothelp_help_mirror.md
 
 # Минимальный HTTP-сервис (Render и локально)
 
-В корне репозитория — минимальный **`server.py`** (FastAPI): `GET /health`, корень, `POST /api/v1/bot/therapists/{therapist_id}/google/oauth-url` и callback `GET /api/v1/google/oauth/callback`. Callback обменивает `code -> token` у Google, шифрует blob и пишет в `calendar_connections.google_oauth_credentials_encrypted` (version=1). Полный API описан в `docs/automation.md`.
+В корне репозитория — минимальный **`server.py`** (FastAPI): `GET /health`, корень, `POST /api/v1/bot/therapists/{therapist_id}/google/oauth-url` и callback `GET /api/v1/google/oauth/callback`. Callback обменивает `code -> token` у Google, шифрует blob и пишет в `calendar_connections.google_oauth_credentials_encrypted` (version=1), затем **редиректит пользователя** на страницу `GET /oauth/google/success` (или на URL из `GOOGLE_OAUTH_SUCCESS_REDIRECT_URL`), чтобы в браузере не оставался сырой JSON. Полный API описан в `docs/automation.md`.
 
 Локально:
 
@@ -231,6 +231,8 @@ uvicorn server:app --host 0.0.0.0 --port 8000
 | `APP_PUBLIC_BASE_URL` | Публичный `https://…` backend (без завершающего `/`) |
 | `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` | OAuth-клиент в [Google Cloud Console](https://console.cloud.google.com/) → APIs & Services → Credentials |
 | `GOOGLE_OAUTH_REDIRECT_URI` | Полный URL callback; должен совпадать с **Authorized redirect URI** в консоли Google (обычно `{APP_PUBLIC_BASE_URL}/api/v1/google/oauth/callback`) |
+| `GOOGLE_OAUTH_SUCCESS_REDIRECT_URL` | Опционально: полный URL, куда редиректить после успешного OAuth (добавится `calendar_connection_id` в query). Если пусто — редирект на `{APP_PUBLIC_BASE_URL}/oauth/google/success` |
+| `GOOGLE_OAUTH_ERROR_REDIRECT_URL` | Опционально: полный URL для редиректа при ошибке OAuth. Если пусто — `{APP_PUBLIC_BASE_URL}/oauth/google/error` |
 | `OAUTH_CREDENTIALS_ENCRYPTION_KEY` | Ключ приложения для шифрования `google_oauth_credentials_encrypted` в БД; в текущей реализации — Fernet key (urlsafe-base64, 32 bytes) |
 | `GOOGLE_GEOCODING_API_KEY` | Опционально, если город терапевта резолвится через Google Geocoding (см. `docs/automation.md` §8.3) |
 

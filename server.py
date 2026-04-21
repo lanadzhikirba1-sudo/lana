@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import base64
+import html
 import json
 import os
 from datetime import UTC, datetime
@@ -15,8 +16,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from fastapi import FastAPI, Header, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from cryptography.fernet import Fernet
 
 
@@ -44,8 +45,8 @@ _merge_repo_dotenv()
 
 app = FastAPI(
     title="lana-backend",
-    version="0.0.4",
-    description="Минимальный backend: health/root + Google OAuth URL/callback с записью в БД.",
+    version="0.0.5",
+    description="Минимальный backend: health/root + Google OAuth URL/callback с записью в БД и редиректом для пользователя.",
 )
 
 
@@ -71,6 +72,32 @@ def _required_env(name: str) -> str:
             detail=f"Required env var is missing: {name}",
         )
     return value
+
+
+def _optional_env(name: str) -> str | None:
+    v = os.environ.get(name, "").strip()
+    return v or None
+
+
+def _public_base_url() -> str:
+    return _required_env("APP_PUBLIC_BASE_URL").rstrip("/")
+
+
+def _oauth_success_redirect(calendar_connection_id: UUID) -> str:
+    custom = _optional_env("GOOGLE_OAUTH_SUCCESS_REDIRECT_URL")
+    if custom:
+        sep = "&" if "?" in custom else "?"
+        return f"{custom}{sep}calendar_connection_id={calendar_connection_id}"
+    return f"{_public_base_url()}/oauth/google/success?calendar_connection_id={calendar_connection_id}"
+
+
+def _oauth_error_redirect(reason: str, detail: str | None = None) -> str:
+    q = urlencode({"reason": reason, "detail": (detail or "")[:200]})
+    custom = _optional_env("GOOGLE_OAUTH_ERROR_REDIRECT_URL")
+    if custom:
+        sep = "&" if "?" in custom else "?"
+        return f"{custom}{sep}{q}"
+    return f"{_public_base_url()}/oauth/google/error?{q}"
 
 
 def _extract_calendar_connection_id(state: str | None) -> UUID:
@@ -237,6 +264,38 @@ def _get_or_create_calendar_connection(therapist_id: UUID, calendar_id: str) -> 
             return UUID(str(created[0]))
 
 
+@app.get("/oauth/google/success", response_class=HTMLResponse)
+def oauth_google_success(calendar_connection_id: str | None = None) -> HTMLResponse:
+    cid = html.escape(calendar_connection_id or "—", quote=True)
+    body = f"""<!DOCTYPE html>
+<html lang="ru">
+<head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Календарь подключён</title></head>
+<body style="font-family:system-ui,sans-serif;max-width:32rem;margin:3rem auto;padding:0 1rem;">
+<h1>Готово</h1>
+<p>Google Календарь успешно привязан. Можно закрыть это окно и вернуться в бот.</p>
+<p style="color:#555;font-size:0.9rem;">Подключение: <code>{cid}</code></p>
+</body></html>"""
+    return HTMLResponse(content=body, status_code=200)
+
+
+@app.get("/oauth/google/error", response_class=HTMLResponse)
+def oauth_google_error(reason: str | None = None, detail: str | None = None) -> HTMLResponse:
+    r = html.escape(reason or "unknown", quote=True)
+    d = html.escape(detail or "", quote=True)
+    body = f"""<!DOCTYPE html>
+<html lang="ru">
+<head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Ошибка подключения</title></head>
+<body style="font-family:system-ui,sans-serif;max-width:32rem;margin:3rem auto;padding:0 1rem;">
+<h1>Не удалось подключить календарь</h1>
+<p><strong>Причина:</strong> {r}</p>
+{f'<p style="color:#555;">{d}</p>' if d else ''}
+<p>Попробуйте снова из бота или обратитесь в поддержку.</p>
+</body></html>"""
+    return HTMLResponse(content=body, status_code=200)
+
+
 @app.post("/api/v1/bot/therapists/{therapist_id}/google/oauth-url")
 def create_google_oauth_url(
     therapist_id: UUID,
@@ -284,30 +343,59 @@ def create_google_oauth_url(
 
 
 @app.get("/api/v1/google/oauth/callback")
-def google_oauth_callback(code: str | None = None, error: str | None = None, state: str | None = None) -> JSONResponse:
+def google_oauth_callback(
+    request: Request,
+    code: str | None = None,
+    error: str | None = None,
+    state: str | None = None,
+) -> RedirectResponse | JSONResponse:
     """
     Принимает code от Google OAuth и обменивает на токены.
 
-    Важно: токены в открытом виде не возвращаются в ответе.
+    Для обычного браузера: редирект на HTML-страницу успеха/ошибки.
+    Для отладки (curl и т.п.): заголовок `Accept: application/json` без `text/html` — вернёт JSON.
     """
+    accept = (request.headers.get("accept") or "").lower()
+    want_json = "application/json" in accept and "text/html" not in accept
+
     if error:
-        return JSONResponse(
-            status_code=400,
-            content={
-                "detail": "Google OAuth returned an error",
-                "oauth_error": error,
-                "state": state,
-            },
-        )
+        if want_json:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "detail": "Google OAuth returned an error",
+                    "oauth_error": error,
+                    "state": state,
+                },
+            )
+        try:
+            url = _oauth_error_redirect("google_oauth_error", error)
+        except HTTPException as exc:
+            return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+        return RedirectResponse(url=url, status_code=302)
+
     if not code:
-        return JSONResponse(
-            status_code=400,
-            content={"detail": "Missing required query parameter: code"},
-        )
+        if want_json:
+            return JSONResponse(
+                status_code=400,
+                content={"detail": "Missing required query parameter: code"},
+            )
+        try:
+            url = _oauth_error_redirect("missing_code", "Missing code")
+        except HTTPException as exc:
+            return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+        return RedirectResponse(url=url, status_code=302)
+
     try:
         calendar_connection_id = _extract_calendar_connection_id(state)
     except HTTPException as exc:
-        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+        if want_json:
+            return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+        try:
+            url = _oauth_error_redirect("invalid_state", str(exc.detail))
+        except HTTPException as inner:
+            return JSONResponse(status_code=inner.status_code, content={"detail": inner.detail})
+        return RedirectResponse(url=url, status_code=302)
 
     payload = urlencode(
         {
@@ -331,63 +419,106 @@ def google_oauth_callback(code: str | None = None, error: str | None = None, sta
             token_data = json.loads(raw)
     except HTTPError as e:
         body = e.read().decode("utf-8", errors="replace")
-        return JSONResponse(
-            status_code=502,
-            content={
-                "detail": "Google token exchange failed",
-                "google_status": e.code,
-                "google_body": body[:500],
-            },
-        )
+        if want_json:
+            return JSONResponse(
+                status_code=502,
+                content={
+                    "detail": "Google token exchange failed",
+                    "google_status": e.code,
+                    "google_body": body[:500],
+                },
+            )
+        try:
+            url = _oauth_error_redirect("token_exchange_failed", f"HTTP {e.code}")
+        except HTTPException as exc:
+            return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+        return RedirectResponse(url=url, status_code=302)
     except URLError as e:
-        return JSONResponse(
-            status_code=502,
-            content={
-                "detail": "Google token exchange network error",
-                "error": str(e.reason),
-            },
-        )
+        if want_json:
+            return JSONResponse(
+                status_code=502,
+                content={
+                    "detail": "Google token exchange network error",
+                    "error": str(e.reason),
+                },
+            )
+        try:
+            url = _oauth_error_redirect("network_error", str(e.reason))
+        except HTTPException as exc:
+            return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+        return RedirectResponse(url=url, status_code=302)
     except json.JSONDecodeError:
-        return JSONResponse(
-            status_code=502,
-            content={"detail": "Google token exchange returned non-JSON response"},
-        )
+        if want_json:
+            return JSONResponse(
+                status_code=502,
+                content={"detail": "Google token exchange returned non-JSON response"},
+            )
+        try:
+            url = _oauth_error_redirect("invalid_token_response", "")
+        except HTTPException as exc:
+            return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+        return RedirectResponse(url=url, status_code=302)
 
     try:
         encrypted_blob = _encrypt_oauth_credentials(token_data)
         saved = _save_oauth_blob(calendar_connection_id, encrypted_blob)
     except HTTPException as exc:
-        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+        if want_json:
+            return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+        try:
+            url = _oauth_error_redirect("persist_failed", str(exc.detail))
+        except HTTPException as inner:
+            return JSONResponse(status_code=inner.status_code, content={"detail": inner.detail})
+        return RedirectResponse(url=url, status_code=302)
     except Exception as exc:  # pragma: no cover - аварийный барьер
-        return JSONResponse(
-            status_code=500,
-            content={"detail": "Failed to persist OAuth credentials", "error": str(exc)[:300]},
-        )
+        if want_json:
+            return JSONResponse(
+                status_code=500,
+                content={"detail": "Failed to persist OAuth credentials", "error": str(exc)[:300]},
+            )
+        try:
+            url = _oauth_error_redirect("persist_failed", str(exc)[:200])
+        except HTTPException as inner:
+            return JSONResponse(status_code=inner.status_code, content={"detail": inner.detail})
+        return RedirectResponse(url=url, status_code=302)
     if not saved:
+        if want_json:
+            return JSONResponse(
+                status_code=404,
+                content={
+                    "detail": "calendar_connection not found for state",
+                    "calendar_connection_id": str(calendar_connection_id),
+                },
+            )
+        try:
+            url = _oauth_error_redirect("connection_not_found", str(calendar_connection_id))
+        except HTTPException as exc:
+            return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+        return RedirectResponse(url=url, status_code=302)
+
+    if want_json:
         return JSONResponse(
-            status_code=404,
+            status_code=200,
             content={
-                "detail": "calendar_connection not found for state",
+                "detail": "OAuth code exchanged successfully",
+                "state_received": bool(state),
                 "calendar_connection_id": str(calendar_connection_id),
+                "refresh_token_received": bool(token_data.get("refresh_token")),
+                "access_token_received": bool(token_data.get("access_token")),
+                "id_token_received": bool(token_data.get("id_token")),
+                "token_type": token_data.get("token_type"),
+                "expires_in": token_data.get("expires_in"),
+                "scope": token_data.get("scope"),
+                "stored_in": "calendar_connections.google_oauth_credentials_encrypted",
+                "oauth_credentials_version": 1,
             },
         )
 
-    return JSONResponse(
-        status_code=200,
-        content={
-            "detail": "OAuth code exchanged successfully",
-            "state_received": bool(state),
-            "calendar_connection_id": str(calendar_connection_id),
-            "refresh_token_received": bool(token_data.get("refresh_token")),
-            "access_token_received": bool(token_data.get("access_token")),
-            "id_token_received": bool(token_data.get("id_token")),
-            "token_type": token_data.get("token_type"),
-            "expires_in": token_data.get("expires_in"),
-            "scope": token_data.get("scope"),
-            "stored_in": "calendar_connections.google_oauth_credentials_encrypted",
-            "oauth_credentials_version": 1,
-        },
-    )
+    try:
+        url = _oauth_success_redirect(calendar_connection_id)
+    except HTTPException as exc:
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+    return RedirectResponse(url=url, status_code=302)
 
 
 def _port() -> int:
